@@ -1,0 +1,93 @@
+-- FitFunda Media AI — PostgreSQL Schema
+-- Run with: Get-Content db/schema.sql | docker exec -i media_ai_db psql -U media_user -d media_ai
+-- Or (bash): docker exec -i media_ai_db psql -U media_user -d media_ai < db/schema.sql
+
+CREATE SCHEMA IF NOT EXISTS media_ai;
+
+SET search_path TO media_ai, public;
+
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- ─────────────────────────────────────────────
+-- Table: event_photos
+-- Stores metadata for every uploaded event photo
+-- ─────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS media_ai.event_photos (
+    photo_id       UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_id       UUID        NOT NULL,
+    image_url      TEXT        NOT NULL,
+    thumbnail_url  TEXT,
+    width          INT,
+    height         INT,
+    captured_at    TIMESTAMP,
+    uploaded_at    TIMESTAMP   NOT NULL DEFAULT NOW(),
+    source         TEXT
+);
+
+-- ─────────────────────────────────────────────
+-- Table: bib_detections
+-- Stores OCR-extracted BIB numbers per photo
+-- ─────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS media_ai.bib_detections (
+    detection_id   UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    photo_id       UUID        NOT NULL REFERENCES media_ai.event_photos(photo_id) ON DELETE CASCADE,
+    bib_number     VARCHAR(10) NOT NULL,
+    confidence     NUMERIC(5,2),
+    bounding_box   JSONB,
+    created_at     TIMESTAMP   NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_bib_detections_bib_number
+    ON media_ai.bib_detections(bib_number);
+
+CREATE INDEX IF NOT EXISTS idx_bib_detections_photo_id
+    ON media_ai.bib_detections(photo_id);
+
+-- ─────────────────────────────────────────────
+-- Table: face_embeddings
+-- Stores 512-dim face vectors for pgvector similarity search
+-- ─────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS media_ai.face_embeddings (
+    face_id        UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    photo_id       UUID        NOT NULL REFERENCES media_ai.event_photos(photo_id) ON DELETE CASCADE,
+    embedding      vector(512) NOT NULL,
+    confidence     NUMERIC(5,2),
+    face_box       JSONB,
+    created_at     TIMESTAMP   NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_face_embeddings_photo_id
+    ON media_ai.face_embeddings(photo_id);
+
+-- IVFFlat index for fast cosine similarity search
+-- Note: requires at least 100 rows before the index is useful
+CREATE INDEX IF NOT EXISTS idx_face_embeddings_ivfflat
+    ON media_ai.face_embeddings
+    USING ivfflat (embedding vector_cosine_ops)
+    WITH (lists = 100);
+
+-- ─────────────────────────────────────────────
+-- Table: search_requests
+-- Tracks every participant search (BIB or selfie)
+-- ─────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS media_ai.search_requests (
+    search_id        UUID      PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id          UUID,
+    event_id         UUID,
+    search_type      VARCHAR(10),        -- 'bib' or 'face'
+    bib_number       VARCHAR(10),        -- populated for BIB searches
+    search_image_url TEXT,               -- selfie path — NULLed after 24h
+    consent_given    BOOLEAN   NOT NULL DEFAULT FALSE,
+    created_at       TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- ─────────────────────────────────────────────
+-- Table: search_results
+-- Maps search requests to matching photos
+-- ─────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS media_ai.search_results (
+    result_id   UUID      PRIMARY KEY DEFAULT gen_random_uuid(),
+    search_id   UUID      NOT NULL REFERENCES media_ai.search_requests(search_id) ON DELETE CASCADE,
+    photo_id    UUID      NOT NULL REFERENCES media_ai.event_photos(photo_id) ON DELETE CASCADE,
+    confidence  NUMERIC(5,4)
+);

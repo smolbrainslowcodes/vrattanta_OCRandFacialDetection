@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Find My Race Photos — FitFunda</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --orange: #f05a28;
+      --dark:   #1a1a2e;
+      --card:   #ffffff;
+      --muted:  #6b7280;
+      --border: #e5e7eb;
+      --radius: 12px;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #f3f4f6;
+      color: var(--dark);
+      min-height: 100vh;
+    }
+
+    header {
+      background: var(--dark);
+      color: #fff;
+      padding: 18px 32px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    header .logo { font-size: 1.4rem; font-weight: 700; letter-spacing: -0.5px; }
+    header .logo span { color: var(--orange); }
+
+    .container { max-width: 860px; margin: 40px auto; padding: 0 20px; }
+
+    h1 { font-size: 1.8rem; font-weight: 700; margin-bottom: 6px; }
+    .subtitle { color: var(--muted); margin-bottom: 28px; }
+
+    .card {
+      background: var(--card);
+      border-radius: var(--radius);
+      padding: 28px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      margin-bottom: 24px;
+    }
+
+    label { font-weight: 600; display: block; margin-bottom: 6px; font-size: 0.9rem; }
+
+    select, input[type="text"] {
+      width: 100%;
+      padding: 10px 14px;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      font-size: 1rem;
+      margin-bottom: 20px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    select:focus, input[type="text"]:focus { border-color: var(--orange); }
+
+    .search-toggle {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .toggle-btn {
+      flex: 1;
+      padding: 12px;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      cursor: pointer;
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--muted);
+      transition: all 0.2s;
+    }
+    .toggle-btn.active {
+      border-color: var(--orange);
+      color: var(--orange);
+      background: #fff5f0;
+    }
+
+    .section { display: none; }
+    .section.visible { display: block; }
+
+    .consent-box {
+      background: #fff8f0;
+      border: 1.5px solid #fcd9b0;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+      font-size: 0.88rem;
+      color: #7c4a00;
+      line-height: 1.5;
+    }
+    .consent-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .consent-row input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; accent-color: var(--orange); }
+
+    input[type="file"] {
+      display: block;
+      margin-bottom: 16px;
+      font-size: 0.9rem;
+    }
+
+    .btn {
+      padding: 12px 28px;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.1s;
+    }
+    .btn:active { transform: scale(0.98); }
+    .btn-primary { background: var(--orange); color: #fff; }
+    .btn-primary:hover { opacity: 0.9; }
+    .btn-primary:disabled { background: #ccc; cursor: not-allowed; }
+    .btn-sm { padding: 6px 14px; font-size: 0.82rem; border-radius: 6px; }
+    .btn-outline {
+      background: transparent;
+      border: 1.5px solid var(--border);
+      color: var(--dark);
+    }
+    .btn-outline:hover { border-color: var(--orange); color: var(--orange); }
+
+    /* Loading */
+    .loading {
+      display: none;
+      text-align: center;
+      padding: 48px 0;
+      color: var(--muted);
+    }
+    .spinner {
+      width: 40px; height: 40px;
+      border: 4px solid var(--border);
+      border-top-color: var(--orange);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 16px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Results */
+    .results-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .results-count { font-weight: 600; font-size: 1rem; }
+
+    .gallery {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 16px;
+    }
+
+    .photo-card {
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: var(--card);
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .photo-card:hover { transform: translateY(-3px); box-shadow: 0 6px 16px rgba(0,0,0,0.12); }
+
+    .photo-card img {
+      width: 100%;
+      aspect-ratio: 1;
+      object-fit: cover;
+      display: block;
+    }
+    .photo-card .photo-footer {
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .confidence-badge {
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 20px;
+      background: #dcfce7;
+      color: #166534;
+    }
+    .confidence-badge.medium { background: #fef9c3; color: #713f12; }
+    .confidence-badge.low { background: #fee2e2; color: #991b1b; }
+
+    /* Empty state */
+    .empty-state {
+      display: none;
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--muted);
+    }
+    .empty-state .icon { font-size: 3rem; margin-bottom: 16px; }
+    .empty-state h3 { color: var(--dark); margin-bottom: 8px; }
+    .empty-state p { font-size: 0.9rem; margin-bottom: 20px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Fit<span>Funda</span></div>
+  <span style="color:#aaa;font-size:0.9rem">· Photo Discovery</span>
+</header>
+
+<div class="container">
+  <h1>Find Your Race Photos</h1>
+  <p class="subtitle">Search by BIB number or upload a selfie to find every photo taken of you.</p>
+
+  <div class="card">
+    <!-- Event selector -->
+    <label for="eventSelect">Select Event</label>
+    <select id="eventSelect">
+      <option value="">— Choose an event —</option>
+      <option value="00000000-0000-0000-0000-000000000001">IRL Pune 10K 2026</option>
+      <option value="00000000-0000-0000-0000-000000000002">IRL Mumbai Half Marathon 2026</option>
+    </select>
+
+    <!-- Search type toggle -->
+    <label>Search By</label>
+    <div class="search-toggle">
+      <button class="toggle-btn active" id="btnBib" onclick="switchTab('bib')">🔢 BIB Number</button>
+      <button class="toggle-btn" id="btnFace" onclick="switchTab('face')">🤳 Upload Selfie</button>
+    </div>
+
+    <!-- BIB search -->
+    <div class="section visible" id="sectionBib">
+      <label for="bibInput">BIB Number</label>
+      <input type="text" id="bibInput" placeholder="e.g. 2451" maxlength="5" />
+      <button class="btn btn-primary" onclick="searchByBib()">Search Photos</button>
+    </div>
+
+    <!-- Selfie search -->
+    <div class="section" id="sectionFace">
+      <div class="consent-box">
+        <strong>Privacy Notice</strong><br/>
+        By uploading a selfie, you consent to face recognition processing for the purpose of identifying your event photos. Your selfie will be automatically deleted after 24 hours — only a mathematical representation is retained.
+        <div class="consent-row">
+          <input type="checkbox" id="consentCheck" onchange="toggleUploadBtn()" />
+          <label for="consentCheck" style="font-weight:400;margin-bottom:0;cursor:pointer">I Agree to the above terms</label>
+        </div>
+      </div>
+      <label for="selfieInput">Upload Selfie</label>
+      <input type="file" id="selfieInput" accept="image/jpeg,image/png" />
+      <button class="btn btn-primary" id="btnUploadSelfie" disabled onclick="searchByFace()">Find My Photos</button>
+    </div>
+  </div>
+
+  <!-- Loading state -->
+  <div class="loading" id="loadingState">
+    <div class="spinner"></div>
+    <p id="loadingMsg">Searching for your photos...</p>
+  </div>
+
+  <!-- Results -->
+  <div id="resultsSection" style="display:none">
+    <div class="results-header">
+      <span class="results-count" id="resultsCount"></span>
+    </div>
+    <div class="gallery" id="gallery"></div>
+  </div>
+
+  <!-- Empty state -->
+  <div class="empty-state" id="emptyState">
+    <div class="icon">📷</div>
+    <h3>No photos found</h3>
+    <p>No exact matches found for your search.</p>
+    <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+      <button class="btn btn-outline btn-sm" onclick="switchTab('bib')">Search by BIB Number</button>
+      <button class="btn btn-outline btn-sm" onclick="switchTab('face')">Upload Another Selfie</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  function switchTab(tab) {
+    document.getElementById('sectionBib').classList.toggle('visible', tab === 'bib');
+    document.getElementById('sectionFace').classList.toggle('visible', tab === 'face');
+    document.getElementById('btnBib').classList.toggle('active', tab === 'bib');
+    document.getElementById('btnFace').classList.toggle('active', tab === 'face');
+    clearResults();
+  }
+
+  function toggleUploadBtn() {
+    document.getElementById('btnUploadSelfie').disabled = !document.getElementById('consentCheck').checked;
+  }
+
+  function clearResults() {
+    document.getElementById('resultsSection').style.display = 'none';
+    document.getElementById('emptyState').style.display = 'none';
+    document.getElementById('loadingState').style.display = 'none';
+    document.getElementById('gallery').innerHTML = '';
+  }
+
+  function showLoading(msg) {
+    clearResults();
+    document.getElementById('loadingMsg').textContent = msg || 'Searching for your photos...';
+    document.getElementById('loadingState').style.display = 'block';
+  }
+
+  function confidenceClass(conf) {
+    if (!conf) return '';
+    if (conf >= 0.85) return '';
+    if (conf >= 0.70) return 'medium';
+    return 'low';
+  }
+
+  function renderResults(photos) {
+    document.getElementById('loadingState').style.display = 'none';
+
+    if (!photos || photos.length === 0) {
+      document.getElementById('emptyState').style.display = 'block';
+      return;
+    }
+
+    document.getElementById('resultsSection').style.display = 'block';
+    document.getElementById('resultsCount').textContent = `${photos.length} photo${photos.length === 1 ? '' : 's'} found`;
+
+    const gallery = document.getElementById('gallery');
+    gallery.innerHTML = '';
+
+    photos.forEach(photo => {
+      const imgSrc = photo.thumbnail_url
+        ? '/storage/' + photo.thumbnail_url.replace(/^.*storage[/\\]/, '')
+        : '/storage/' + photo.image_url.replace(/^.*storage[/\\]/, '');
+
+      const fullSrc = '/storage/' + photo.image_url.replace(/^.*storage[/\\]/, '');
+
+      const confLabel = photo.confidence ? (photo.confidence * 100).toFixed(0) + '%' : '';
+      const confClass = confidenceClass(photo.confidence);
+
+      const card = document.createElement('div');
+      card.className = 'photo-card';
+      card.innerHTML = `
+        <img src="${imgSrc}" alt="Race photo" onerror="this.src='https://via.placeholder.com/300x300?text=Photo'" loading="lazy"/>
+        <div class="photo-footer">
+          ${confLabel ? `<span class="confidence-badge ${confClass}">${confLabel}</span>` : '<span></span>'}
+          <a href="${fullSrc}" download>
+            <button class="btn btn-outline btn-sm">⬇ Download</button>
+          </a>
+        </div>
+      `;
+      gallery.appendChild(card);
+    });
+  }
+
+  async function searchByBib() {
+    const eventId = document.getElementById('eventSelect').value;
+    const bib = document.getElementById('bibInput').value.trim();
+
+    if (!eventId) { alert('Please select an event first.'); return; }
+    if (!bib) { alert('Please enter a BIB number.'); return; }
+
+    showLoading('Searching photos for BIB ' + bib + '...');
+
+    try {
+      const res = await fetch(`/search/bib?event_id=${encodeURIComponent(eventId)}&bib=${encodeURIComponent(bib)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Search failed');
+      renderResults(data.photos);
+    } catch (err) {
+      document.getElementById('loadingState').style.display = 'none';
+      alert('Error: ' + err.message);
+    }
+  }
+
+  async function searchByFace() {
+    const eventId = document.getElementById('eventSelect').value;
+    const fileInput = document.getElementById('selfieInput');
+    const consent = document.getElementById('consentCheck').checked;
+
+    if (!eventId) { alert('Please select an event first.'); return; }
+    if (!fileInput.files[0]) { alert('Please select a selfie image.'); return; }
+    if (!consent) { alert('Please agree to the consent terms first.'); return; }
+
+    showLoading('Analysing your face and searching photos...');
+
+    const formData = new FormData();
+    formData.append('selfie', fileInput.files[0]);
+    formData.append('event_id', eventId);
+    formData.append('consent', 'true');
+
+    try {
+      const res = await fetch('/search/face', { method: 'POST', body: formData });
+      const data = await res.json();
+
+      if (res.status === 501) {
+        document.getElementById('loadingState').style.display = 'none';
+        alert('Face search is coming soon — CompreFace integration is pending (Week 3). Use BIB search for now.');
+        return;
+      }
+      if (!res.ok) throw new Error(data.detail || 'Face search failed');
+      renderResults(data.photos);
+    } catch (err) {
+      document.getElementById('loadingState').style.display = 'none';
+      alert('Error: ' + err.message);
+    }
+  }
+</script>
+</body>
+</html>

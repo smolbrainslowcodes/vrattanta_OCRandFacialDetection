@@ -1,0 +1,103 @@
+
+services:
+
+  db:
+    image: ankane/pgvector
+    container_name: media_ai_db
+    environment:
+      POSTGRES_DB: media_ai
+      POSTGRES_USER: media_user
+      POSTGRES_PASSWORD: media_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U media_user -d media_ai"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  compreface-postgres-db:
+    image: exadel/compreface-postgres-db:1.2.0
+    container_name: compreface_db
+    environment:
+      POSTGRES_USER: compreface_user
+      POSTGRES_PASSWORD: compreface_pass
+      POSTGRES_DB: compreface_db
+    volumes:
+      - compreface_pgdata:/var/lib/postgresql/data
+
+  compreface-core:
+    image: exadel/compreface-core:1.2.0
+    container_name: compreface_core
+    environment:
+      BE_URL: http://compreface-api:8080
+      UWSGI_PROCESSES: 2
+      UWSGI_THREADS: 1
+
+  compreface-api:
+    image: exadel/compreface-api:1.2.0
+    container_name: compreface_api
+    environment:
+      POSTGRES_USER: compreface_user
+      POSTGRES_PASSWORD: compreface_pass
+      POSTGRES_URL: jdbc:postgresql://compreface-postgres-db:5432/compreface_db
+      SPRING_PROFILES_ACTIVE: dev
+      PYTHON_URL: http://compreface-core:3000
+      MAX_FILE_SIZE: 5MB
+      MAX_REQUEST_SIZE: 10MB
+    depends_on:
+      - compreface-postgres-db
+      - compreface-core
+
+  compreface-admin:
+    image: exadel/compreface-admin:1.2.0
+    container_name: compreface_admin
+    environment:
+      POSTGRES_USER: compreface_user
+      POSTGRES_PASSWORD: compreface_pass
+      POSTGRES_URL: jdbc:postgresql://compreface-postgres-db:5432/compreface_db
+      SPRING_PROFILES_ACTIVE: dev
+      COMPREFACE_API_URL: http://compreface-api:8080
+      ENABLE_EMAIL_SERVER: "false"
+    depends_on:
+      - compreface-postgres-db
+      - compreface-api
+
+  compreface-ui:
+    image: exadel/compreface-fe:1.2.0
+    container_name: compreface_ui
+    environment:
+      CLIENT_MAX_BODY_SIZE: 10M
+      PROXY_READ_TIMEOUT: 60s
+      PROXY_CONNECT_TIMEOUT: 10s
+      COMPREFACE_API_URL: http://compreface-api:8080
+      COMPREFACE_ADMIN_URL: http://compreface-admin:8080
+    ports:
+      - "8001:80"
+    depends_on:
+      - compreface-api
+      - compreface-admin
+
+  api:
+    build: .
+    container_name: media_ai_api
+    env_file: .env
+    environment:
+      DB_HOST: db
+      STORAGE_PATH: /app/storage
+      # When running in Docker, CompreFace is reachable via its service name
+      COMPREFACE_URL: http://compreface-ui:80
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./storage:/app/storage
+      - ./templates:/app/templates
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  compreface_pgdata:

@@ -30,7 +30,15 @@ def extract_face_embedding(image_path: str) -> list[dict] | None:
 
     url = f"{COMPREFACE_URL}/api/v1/detection/detect"
     headers = {"x-api-key": COMPREFACE_API_KEY}
-    params = {"face_plugins": "calculator"}  # calculator plugin returns the embedding
+    params = {
+        "face_plugins": "calculator",  # calculator plugin returns the embedding
+        "limit": 0,  # 0 = no limit on number of faces returned.
+        # CompreFace 1.2.0 has a bug where omitting `limit` can incorrectly
+        # raise "No face is found" even when a face IS detected internally
+        # (visible in compreface-core logs as a BoundingBoxDTO with a valid
+        # probability, immediately followed by a NoFaceFoundError). Passing
+        # limit=0 explicitly avoids that code path.
+    }
 
     try:
         with open(image_path, "rb") as f:

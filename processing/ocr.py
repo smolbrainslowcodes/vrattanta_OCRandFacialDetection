@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytesseract
 pytesseract.pytesseract.tesseract_cmd = r"C:\Users\wadar\AppData\Local\Programs\Tesseract-OCR\tesseract.exe"
-from PIL import Image, ImageEnhance
+from PIL import Image, ImageEnhance, ImageOps
 
 MIN_BIB_CONFIDENCE = float(os.getenv("MIN_BIB_CONFIDENCE", "60"))
 MAX_DIMENSION = 1080
@@ -14,12 +14,17 @@ MAX_DIMENSION = 1080
 def preprocess_image(image_path: str) -> str:
     """
     Prepare an image for OCR:
+    - Fix orientation using EXIF metadata (many cameras store rotation as
+      metadata rather than physically rotating pixels — without this,
+      sideways photos fail OCR even though they look fine to the eye)
     - Convert to grayscale
     - Boost contrast
     - Resize to max 1080px on longest side (preserving aspect ratio)
     - Save to a temp file and return its path
     """
-    img = Image.open(image_path).convert("L")  # grayscale
+    img = Image.open(image_path)
+    img = ImageOps.exif_transpose(img)  # correct rotation before anything else
+    img = img.convert("L")  # grayscale
 
     enhancer = ImageEnhance.Contrast(img)
     img = enhancer.enhance(2.0)
@@ -42,14 +47,14 @@ def extract_bib(image_path: str) -> list[dict]:
     Returns a list of dicts:
         {
             "bib_number": str,          # 3–5 digit number
-            "confidence": float,        # Tesseract confidence 0–100
+            "confidence": float,        # Tesseract confidence stored as 0.0–1.0
             "bounding_box": {x, y, w, h}
         }
 
     Filters:
         - digits only (no letters)
         - length 3–5 digits
-        - confidence > MIN_BIB_CONFIDENCE (env, default 60)
+        - confidence > MIN_BIB_CONFIDENCE (env, default 60, on Tesseract's 0–100 scale)
     """
     preprocessed_path = preprocess_image(image_path)
 
@@ -86,7 +91,7 @@ def extract_bib(image_path: str) -> list[dict]:
         results.append(
             {
                 "bib_number": text,
-                "confidence": round(conf/100, 4),
+                "confidence": round(conf / 100, 4),
                 "bounding_box": {
                     "x": data["left"][i],
                     "y": data["top"][i],

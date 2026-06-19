@@ -5,7 +5,7 @@ from pathlib import Path
 from datetime import datetime
 
 from fastapi import APIRouter, UploadFile, File, Form, BackgroundTasks, HTTPException
-from PIL import Image
+from PIL import Image, ImageOps
 
 from db.connection import execute_query
 from processing.ocr import extract_bib
@@ -31,6 +31,7 @@ def _save_photo(file_content: bytes, event_id: str, filename: str) -> tuple[Path
 
     # Generate thumbnail (300px max on longest side)
     img = Image.open(original_path)
+    img = ImageOps.exif_transpose(img)  # bake in correct rotation before resizing
     img.thumbnail((300, 300), Image.LANCZOS)
     thumb_path = thumb_dir / safe_name
     img.save(thumb_path)
@@ -96,7 +97,10 @@ async def upload_photo(
     content = await file.read()
     response = _ingest_single(content, file.filename, file.content_type, event_id)
     background_tasks.add_task(_run_ocr_and_store, response.image_url, response.photo_id)
-    background_tasks.add_task(batch_process_event, event_id)
+    # NOTE: full event batch (face embedding) is intentionally NOT triggered here.
+    # Triggering it on every single upload caused multiple overlapping batch runs
+    # to fire concurrently, overwhelming CompreFace. Use /upload/bulk for batches
+    # of photos, or POST /admin/batch/{event_id} to process an event manually.
     return response
 
 
@@ -117,6 +121,7 @@ async def upload_bulk(
             # Log and skip bad files in bulk upload rather than aborting everything
             print(f"[UPLOAD] Skipping {file.filename}: {e.detail}")
 
-    # Trigger face embedding for all uploaded photos once the loop is done
+    # Trigger face embedding for all uploaded photos once the loop is done.
+    # This only fires once per bulk upload call, not once per file.
     background_tasks.add_task(batch_process_event, event_id)
     return responses

@@ -95,7 +95,7 @@ def batch_process_event(event_id: str) -> dict:
                 faces = extract_face_embedding(image_path)
 
                 if faces is None:
-                    print(f"[FACE] photo {i}/{total} — stub returned None (Week 3 pending)")
+                    print(f"[FACE] photo {i}/{total} — no embedding returned, skipping")
                 else:
                     for face in faces:
                         execute_query(

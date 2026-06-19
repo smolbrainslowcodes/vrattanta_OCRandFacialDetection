@@ -1,8 +1,43 @@
 import os
+import tempfile
 import requests
+from PIL import Image, ImageOps
 
 COMPREFACE_URL = os.getenv("COMPREFACE_URL", "http://localhost:8000")
 COMPREFACE_API_KEY = os.getenv("COMPREFACE_API_KEY", "")
+
+# CompreFace's core service has an internal IMG_LENGTH_LIMIT of 640px.
+# Sending full-resolution camera photos (e.g. 4608x3072) directly relies on
+# CompreFace's own internal downscaling, which was found to produce a
+# degraded image that breaks its detection pipeline — it would detect a face
+# internally (visible in compreface-core logs) but then fail with
+# "No face is found" or "Something went wrong" right after.
+#
+# Pre-resizing (and fixing EXIF rotation) on our side before sending fixed
+# this completely — confirmed by testing a manually resized copy directly
+# through the CompreFace UI.
+MAX_DIMENSION = 640
+
+
+def _prepare_image_for_compreface(image_path: str) -> str:
+    """
+    Fix orientation and resize an image to CompreFace's expected max
+    dimension before sending it. Returns the path to a temp JPEG file —
+    caller is responsible for deleting it after use.
+    """
+    img = Image.open(image_path)
+    img = ImageOps.exif_transpose(img)  # correct rotation before anything else
+    img = img.convert("RGB")  # CompreFace expects color, not grayscale
+
+    w, h = img.size
+    if max(w, h) > MAX_DIMENSION:
+        scale = MAX_DIMENSION / max(w, h)
+        img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+    img.save(tmp.name, format="JPEG", quality=90)
+    tmp.close()
+    return tmp.name
 
 
 def extract_face_embedding(image_path: str) -> list[dict] | None:
@@ -28,20 +63,17 @@ def extract_face_embedding(image_path: str) -> list[dict] | None:
         print("[FACE] COMPREFACE_API_KEY not set — skipping face embedding")
         return None
 
+    prepared_path = _prepare_image_for_compreface(image_path)
+
     url = f"{COMPREFACE_URL}/api/v1/detection/detect"
     headers = {"x-api-key": COMPREFACE_API_KEY}
     params = {
         "face_plugins": "calculator",  # calculator plugin returns the embedding
-        "limit": 0,  # 0 = no limit on number of faces returned.
-        # CompreFace 1.2.0 has a bug where omitting `limit` can incorrectly
-        # raise "No face is found" even when a face IS detected internally
-        # (visible in compreface-core logs as a BoundingBoxDTO with a valid
-        # probability, immediately followed by a NoFaceFoundError). Passing
-        # limit=0 explicitly avoids that code path.
+        "limit": 0,  # 0 = no limit on number of faces returned (this is also the default)
     }
 
     try:
-        with open(image_path, "rb") as f:
+        with open(prepared_path, "rb") as f:
             files = {"file": (os.path.basename(image_path), f, "image/jpeg")}
             response = requests.post(url, headers=headers, params=params, files=files, timeout=30)
     except requests.exceptions.ConnectionError:
@@ -50,6 +82,8 @@ def extract_face_embedding(image_path: str) -> list[dict] | None:
     except requests.exceptions.Timeout:
         print(f"[FACE] CompreFace request timed out for {image_path}")
         return None
+    finally:
+        os.unlink(prepared_path)
 
     if response.status_code != 200:
         print(f"[FACE] CompreFace returned {response.status_code}: {response.text[:200]}")

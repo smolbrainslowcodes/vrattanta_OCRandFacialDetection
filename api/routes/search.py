@@ -101,10 +101,10 @@ async def search_by_face(
 
     if faces is None:
         return JSONResponse(
-            status_code=501,
+            status_code=422,
             content={
-                "error": "Face search not yet available — CompreFace integration pending",
-                "detail": "This feature will be enabled in Week 3. See processing/face.py for the implementation guide.",
+                "error": "No face detected in selfie",
+                "detail": "We couldn't detect a face in your photo. Try a clearer, front-facing selfie with good lighting.",
             },
         )
 

@@ -396,11 +396,6 @@
       const res = await fetch('/search/face', { method: 'POST', body: formData });
       const data = await res.json();
 
-      if (res.status === 501) {
-        document.getElementById('loadingState').style.display = 'none';
-        alert('Face search is coming soon — CompreFace integration is pending (Week 3). Use BIB search for now.');
-        return;
-      }
       if (!res.ok) throw new Error(data.detail || 'Face search failed');
       renderResults(data.photos);
     } catch (err) {

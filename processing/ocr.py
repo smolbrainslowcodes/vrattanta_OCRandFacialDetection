@@ -4,7 +4,13 @@ import tempfile
 from pathlib import Path
 
 import pytesseract
-pytesseract.pytesseract.tesseract_cmd = r"C:\Users\wadar\AppData\Local\Programs\Tesseract-OCR\tesseract.exe"
+
+# In Docker, tesseract-ocr (installed via apt) is already on PATH.
+# For local dev on Windows, set TESSERACT_CMD in .env if it's not on PATH.
+TESSERACT_CMD = os.getenv("TESSERACT_CMD")
+if TESSERACT_CMD:
+    pytesseract.pytesseract.tesseract_cmd = TESSERACT_CMD
+
 from PIL import Image, ImageEnhance, ImageOps
 
 MIN_BIB_CONFIDENCE = float(os.getenv("MIN_BIB_CONFIDENCE", "60"))

@@ -11,6 +11,7 @@ AI-powered race photo discovery using BIB OCR + Face Search.
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (running)
 - Python 3.11+
 - Visual Studio Code (recommended)
+- [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki) installed locally — only needed for **Local Dev Mode** below (Docker mode installs it automatically). On Windows, if the installer didn't add it to `PATH`, set `TESSERACT_CMD` in `.env` to the full path of `tesseract.exe`.
 
 ---
 
@@ -124,7 +125,7 @@ python processing/batch.py 00000000-0000-0000-0000-000000000001
 Replace the UUID with your actual event ID. The script:
 1. Skips photos already processed (safe to re-run)
 2. Extracts BIB numbers via Tesseract OCR
-3. Attempts face embedding (stub in Week 2 — returns None)
+3. Extracts face embeddings via CompreFace (skipped with a log message if `COMPREFACE_API_KEY` isn't set)
 4. Logs progress: `[OCR] photo 12/50 — found BIBs: [2451]`
 
 ---
@@ -156,22 +157,22 @@ delete_expired_selfies()
 
 ---
 
-## Week 3 — Adding CompreFace (Face Search)
+## Face Search — Powered by CompreFace
 
-Face search currently returns HTTP 501. When you're ready to implement it:
+Face search is implemented end-to-end via a self-hosted [CompreFace](https://github.com/exadel-inc/CompreFace) stack, already wired into `docker-compose.yml` (`compreface-core`, `compreface-api`, `compreface-admin`, `compreface-ui`, plus its own Postgres).
 
-**1. File to edit:** `processing/face.py`
+**Setup:**
+1. `docker-compose up --build` to bring up CompreFace alongside the rest of the stack.
+2. Open the CompreFace admin UI at **http://localhost:8001**, create an account, then create a Face Recognition service and copy its API key.
+3. Add the key to `.env`:
+   ```
+   COMPREFACE_API_KEY=your_key_here
+   ```
+4. Restart the API container (or local `uvicorn` process) so it picks up the key.
 
-**2. What to do:** Replace the `extract_face_embedding()` stub with the real implementation. The full code is in the comment block at the top of that file — it includes the exact CompreFace endpoint, request format, response parsing, and how to handle multiple faces per photo.
+Without `COMPREFACE_API_KEY` set, `extract_face_embedding()` in `processing/face.py` logs a message and returns `None` for every photo — OCR/BIB search still works, but face search will report no matches.
 
-**3. Add CompreFace to docker-compose.yml:** The service definition is also documented in `processing/face.py`.
-
-**4. Add to .env:**
-```
-COMPREFACE_API_KEY=your_key_here
-```
-
-No other files need changes — `api/routes/search.py` already calls `extract_face_embedding()` and handles the real response path.
+`processing/face.py` pre-resizes and EXIF-corrects images before sending them to CompreFace's `/detection/detect` endpoint (with the `calculator` plugin for embeddings) — sending full-resolution camera photos directly was found to break CompreFace's own internal downscaling.
 
 ---
 
@@ -191,7 +192,7 @@ media-ai/
 │   └── connection.py        # psycopg2 connection pool
 ├── processing/
 │   ├── ocr.py               # Tesseract BIB extraction
-│   ├── face.py              # Face embedding stub (Week 3 guide inside)
+│   ├── face.py              # CompreFace face embedding
 │   ├── batch.py             # Full batch pipeline script
 │   └── cleanup.py           # Selfie auto-deletion
 ├── templates/

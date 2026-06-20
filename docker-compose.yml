@@ -1,4 +1,15 @@
 
+# Resource caps below assume our whole stack (db + the 5 CompreFace
+# containers + api) gets roughly a third of an 8 vCPU / 24 GB Contabo box
+# (~3 vCPU / ~8 GB total) — the rest is reserved for the website and the
+# separately-owned RAG chatbot sharing the same host. This is a placeholder
+# split, not measured numbers; revisit once real usage is observed.
+#
+# NOTE: `deploy.resources.limits` is only enforced by Docker Compose V2
+# (`docker compose ...`), not the legacy V1 `docker-compose` binary — confirm
+# `docker compose version` on the host and check `docker stats` after
+# deploying to make sure these are actually being applied.
+
 services:
 
   db:
@@ -17,6 +28,11 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1G
 
   compreface-postgres-db:
     image: exadel/compreface-postgres-db:1.2.0
@@ -27,6 +43,11 @@ services:
       POSTGRES_DB: compreface_db
     volumes:
       - compreface_pgdata:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
 
   compreface-core:
     image: exadel/compreface-core:1.2.0
@@ -35,6 +56,11 @@ services:
       BE_URL: http://compreface-api:8080
       UWSGI_PROCESSES: 2
       UWSGI_THREADS: 1
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 3G
 
   compreface-api:
     image: exadel/compreface-api:1.2.0
@@ -50,6 +76,11 @@ services:
     depends_on:
       - compreface-postgres-db
       - compreface-core
+    deploy:
+      resources:
+        limits:
+          cpus: '0.4'
+          memory: 768M
 
   compreface-admin:
     image: exadel/compreface-admin:1.2.0
@@ -64,6 +95,11 @@ services:
     depends_on:
       - compreface-postgres-db
       - compreface-api
+    deploy:
+      resources:
+        limits:
+          cpus: '0.15'
+          memory: 512M
 
   compreface-ui:
     image: exadel/compreface-fe:1.2.0
@@ -79,6 +115,11 @@ services:
     depends_on:
       - compreface-api
       - compreface-admin
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 128M
 
   api:
     build: .
@@ -89,6 +130,11 @@ services:
       STORAGE_PATH: /app/storage
       # When running in Docker, CompreFace is reachable via its service name
       COMPREFACE_URL: http://compreface-ui:80
+      # Lower than the .env.example default (4/2) — this container only
+      # gets 0.6 vCPU on the shared Contabo box. Tune down further (e.g.
+      # OCR_WORKERS=1) if OCR calls are seen queuing/timing out under load.
+      OCR_WORKERS: 2
+      FACE_WORKERS: 2
     ports:
       - "8000:8000"
     volumes:
@@ -97,6 +143,11 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.6'
+          memory: 2300M
 
 volumes:
   pgdata:

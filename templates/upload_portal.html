@@ -300,7 +300,7 @@
 
   async function uploadSequentially(eventId, index) {
     if (index >= fileItems.length) {
-      finishUpload();
+      finishUpload(eventId);
       return;
     }
 
@@ -351,11 +351,32 @@
     document.getElementById('progressLabel').textContent = `Uploading photo ${done + 1} of ${total}...`;
   }
 
-  function finishUpload() {
+  const BATCH_TRIGGER_MAX_ATTEMPTS = 3;
+  const BATCH_TRIGGER_RETRY_DELAY_MS = 2000;
+
+  async function triggerBatchProcessing(eventId, attempt = 1) {
+    document.getElementById('progressLabel').textContent = attempt === 1
+      ? `Starting BIB & face detection...`
+      : `Retrying (attempt ${attempt}/${BATCH_TRIGGER_MAX_ATTEMPTS})...`;
+
+    try {
+      const res = await fetch(`/admin/batch/${eventId}`, { method: 'POST' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      document.getElementById('progressLabel').textContent = `All done! BIB & face detection is running in the background.`;
+    } catch (err) {
+      if (attempt < BATCH_TRIGGER_MAX_ATTEMPTS) {
+        await new Promise(r => setTimeout(r, BATCH_TRIGGER_RETRY_DELAY_MS));
+        return triggerBatchProcessing(eventId, attempt + 1);
+      }
+      document.getElementById('progressLabel').textContent =
+        `Upload complete, but couldn't start processing after ${BATCH_TRIGGER_MAX_ATTEMPTS} attempts — ask an admin to trigger it.`;
+    }
+  }
+
+  async function finishUpload(eventId) {
     const total = fileItems.length;
     document.getElementById('progressBar').style.width = '100%';
     document.getElementById('progressFraction').textContent = `${total} / ${total}`;
-    document.getElementById('progressLabel').textContent = `All done! BIB detection is running in the background.`;
     document.getElementById('progressTitle').textContent = 'Upload complete';
 
     document.getElementById('statTotal').textContent = total;
@@ -364,6 +385,15 @@
 
     document.getElementById('summary').classList.add('visible');
     document.getElementById('doneActions').style.display = 'flex';
+
+    // Kick off BIB + face detection for the whole event now that every file
+    // in this session has finished uploading — triggered once here rather
+    // than per-file, to avoid overlapping batch runs against CompreFace.
+    if (successCount > 0) {
+      await triggerBatchProcessing(eventId);
+    } else {
+      document.getElementById('progressLabel').textContent = `No photos uploaded successfully — nothing to process.`;
+    }
   }
 
   function resetPortal() {

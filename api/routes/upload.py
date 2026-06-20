@@ -1,6 +1,5 @@
 import os
 import uuid
-import json
 from pathlib import Path
 from datetime import datetime
 
@@ -8,7 +7,6 @@ from fastapi import APIRouter, UploadFile, File, Form, BackgroundTasks, HTTPExce
 from PIL import Image, ImageOps
 
 from db.connection import execute_query
-from processing.ocr import extract_bib
 from processing.batch import batch_process_event
 from api.models import UploadResponse
 
@@ -37,20 +35,6 @@ def _save_photo(file_content: bytes, event_id: str, filename: str) -> tuple[Path
     img.save(thumb_path)
 
     return original_path, thumb_path
-
-
-def _run_ocr_and_store(image_path: str, photo_id: str):
-    """Background task: run OCR and store BIB detections in DB."""
-    bibs = extract_bib(image_path)
-    for bib in bibs:
-        execute_query(
-            """
-            INSERT INTO media_ai.bib_detections
-                (photo_id, bib_number, confidence, bounding_box)
-            VALUES (%s, %s, %s, %s)
-            """,
-            (photo_id, bib["bib_number"], bib["confidence"], json.dumps(bib["bounding_box"])),
-        )
 
 
 def _ingest_single(file_content: bytes, filename: str, content_type: str, event_id: str) -> UploadResponse:
@@ -90,17 +74,18 @@ def _ingest_single(file_content: bytes, filename: str, content_type: str, event_
 
 @router.post("/upload", response_model=UploadResponse)
 async def upload_photo(
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     event_id: str = Form(...),
 ):
     content = await file.read()
     response = _ingest_single(content, file.filename, file.content_type, event_id)
-    background_tasks.add_task(_run_ocr_and_store, response.image_url, response.photo_id)
-    # NOTE: full event batch (face embedding) is intentionally NOT triggered here.
-    # Triggering it on every single upload caused multiple overlapping batch runs
-    # to fire concurrently, overwhelming CompreFace. Use /upload/bulk for batches
-    # of photos, or POST /admin/batch/{event_id} to process an event manually.
+    # NOTE: OCR and face embedding are intentionally NOT triggered here.
+    # Triggering batch processing on every single upload caused multiple
+    # overlapping batch runs to fire concurrently, overwhelming CompreFace
+    # (and racing with each other on the same photo). Once all photos in an
+    # upload session are in, trigger processing once via
+    # POST /admin/batch/{event_id} — the photographer portal does this
+    # automatically after the last file finishes uploading.
     return response
 
 
@@ -115,13 +100,12 @@ async def upload_bulk(
         content = await file.read()
         try:
             resp = _ingest_single(content, file.filename, file.content_type, event_id)
-            background_tasks.add_task(_run_ocr_and_store, resp.image_url, resp.photo_id)
             responses.append(resp)
         except HTTPException as e:
             # Log and skip bad files in bulk upload rather than aborting everything
             print(f"[UPLOAD] Skipping {file.filename}: {e.detail}")
 
-    # Trigger face embedding for all uploaded photos once the loop is done.
-    # This only fires once per bulk upload call, not once per file.
+    # Trigger OCR + face embedding for all uploaded photos once the loop is
+    # done. This only fires once per bulk upload call, not once per file.
     background_tasks.add_task(batch_process_event, event_id)
     return responses

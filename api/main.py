@@ -12,8 +12,10 @@ load_dotenv()
 
 from api.routes import upload, search, admin
 from processing.cleanup import delete_expired_selfies
+from processing.batch import sweep_stalled_events
 
 STORAGE_PATH = Path(os.getenv("STORAGE_PATH", "./storage"))
+SWEEP_INTERVAL_MINUTES = int(os.getenv("SWEEP_INTERVAL_MINUTES", "15"))
 
 app = FastAPI(
     title="FitFunda Media AI",
@@ -55,11 +57,15 @@ def startup():
     if STORAGE_PATH.exists():
         app.mount("/storage", StaticFiles(directory=str(STORAGE_PATH)), name="storage")
 
-    # Start scheduler for selfie cleanup
+    # Start scheduler for selfie cleanup + the stalled-batch safety net
     scheduler = BackgroundScheduler()
     scheduler.add_job(delete_expired_selfies, "interval", hours=1, id="selfie_cleanup")
+    scheduler.add_job(sweep_stalled_events, "interval", minutes=SWEEP_INTERVAL_MINUTES, id="batch_sweep")
     scheduler.start()
-    print("[STARTUP] APScheduler started — selfie cleanup runs every hour")
+    print(
+        "[STARTUP] APScheduler started — selfie cleanup runs every hour, "
+        f"stalled-batch sweep runs every {SWEEP_INTERVAL_MINUTES} minutes"
+    )
 
 @app.get("/upload_portal")
 async def upload_portal(request: Request):

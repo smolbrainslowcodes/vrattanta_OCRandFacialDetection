@@ -116,7 +116,15 @@ curl http://localhost:8000/health
 
 ## Run Batch Processing
 
-After a photographer bulk-uploads photos, run OCR and face processing for the entire event:
+The photographer upload portal triggers this automatically once every file in
+an upload session has finished uploading — no manual step needed for photos
+uploaded through the portal. OCR and face embedding are intentionally **not**
+run per individual photo upload (that caused overlapping batch runs that
+overwhelmed CompreFace); they only run once per event, after the whole
+session is done.
+
+If you've ingested photos some other way (direct API calls, restoring from
+backup, etc.) and need to trigger this manually:
 
 ```bash
 python processing/batch.py 00000000-0000-0000-0000-000000000001
@@ -124,15 +132,16 @@ python processing/batch.py 00000000-0000-0000-0000-000000000001
 
 Replace the UUID with your actual event ID. The script:
 1. Skips photos already processed (safe to re-run)
-2. Extracts BIB numbers via Tesseract OCR
-3. Extracts face embeddings via CompreFace (skipped with a log message if `COMPREFACE_API_KEY` isn't set)
-4. Logs progress: `[OCR] photo 12/50 — found BIBs: [2451]`
+2. Extracts BIB numbers via Tesseract OCR (`OCR_WORKERS` concurrent, default 4)
+3. Extracts face embeddings via CompreFace (`FACE_WORKERS` concurrent, default 2; skipped with a log message if `COMPREFACE_API_KEY` isn't set)
+4. Logs progress per photo, e.g. `[OCR] photo <id> — found BIBs: [2451]`
+5. Records any failures in `media_ai.processing_errors` instead of silently dying — a corrupt photo won't take down the rest of the batch
 
 ---
 
 ## Admin API Endpoints
 
-**Trigger batch processing (async):**
+**Trigger batch processing manually (async):** this is what the upload portal calls automatically — use this directly only if you uploaded photos some other way.
 ```bash
 curl -X POST http://localhost:8000/admin/batch/00000000-0000-0000-0000-000000000001
 ```
